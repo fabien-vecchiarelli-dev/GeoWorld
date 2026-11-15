@@ -1,4 +1,6 @@
-// Initialise le serveur Express et enregistre les routes de l'API GeoWorld.
+
+/* Initialise le serveur Express et enregistre les routes de l'API GeoWorld. */
+
 import { Request, Response, NextFunction } from "express";
 import { AppDataSource } from "./data-source";
 import { Routes } from "./routes";
@@ -20,6 +22,7 @@ AppDataSource.initialize()
                 credentials: true,
             }),
         );
+
         app.use(express.json());
 
         // Enregistrement des routes définies dans Routes.
@@ -31,28 +34,26 @@ AppDataSource.initialize()
                 ...middlewares,
                 (req: Request, res: Response, next: NextFunction) => {
                     try {
-                        const result = new (route.controller as any)()[
-                            route.action
-                        ](req, res, next);
+                        const controller = new (route.controller as any)();
+                        const result = controller[route.action](req, res, next);
+
+                        const sendResult = (value: any) => {
+                            if (res.headersSent || value === undefined || value === null) {
+                                return;
+                            }
+
+                            // Un contrôleur ne doit pas renvoyer l'objet Response Express.
+                            if (value === res) {
+                                return;
+                            }
+
+                            res.json(value);
+                        };
 
                         if (result instanceof Promise) {
-                            result
-                                .then((result) => {
-                                    if (
-                                        result !== null &&
-                                        result !== undefined &&
-                                        !res.headersSent
-                                    ) {
-                                        res.send(result);
-                                    }
-                                })
-                                .catch(next);
-                        } else if (
-                            result !== null &&
-                            result !== undefined &&
-                            !res.headersSent
-                        ) {
-                            res.json(result);
+                            result.then(sendResult).catch(next);
+                        } else {
+                            sendResult(result);
                         }
                     } catch (error) {
                         next(error);

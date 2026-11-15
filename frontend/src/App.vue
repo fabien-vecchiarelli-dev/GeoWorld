@@ -1,16 +1,20 @@
 
-<!-- Affiche la structure générale de GeoWorld et masque la navbar pendant une partie. -->
+<!-- Affiche la structure générale de GeoWorld sans navbar sur les pages de connexion et de jeu. -->
 <template>
     <v-app>
-        <NavBar v-if="$route.path !== '/quizz/jeu'" />
+        <NavBar v-if="!pagesSansNavigation.includes($route.path)" />
         <router-view />
-        <Footer v-if="!['/connexion', '/inscription', '/quizz/jeu'].includes($route.path)" />
     </v-app>
 </template>
 
 <script setup>
 import NavBar from "./components/NavBar.vue";
-import Footer from "./components/Footer.vue";
+
+const pagesSansNavigation = [
+    "/connexion",
+    "/inscription",
+    "/quizz/jeu",
+];
 </script>
 
 <style>
@@ -24,5 +28,3 @@ body {
     min-height: 100vh;
 }
 </style>
-
-```

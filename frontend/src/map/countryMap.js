@@ -1,11 +1,15 @@
 /* Affiche la carte, détecte les pays et territoires et gère leur surbrillance. */
 
 import * as maptilersdk from "@maptiler/sdk";
-import { getCountryByIsoCode, getTerritoryByIsoCode } from "../services/countryService";
+import {
+    getCountryByIsoCode,
+    getTerritoryByIsoCode,
+} from "../services/countryService";
 import { microCountries } from "./microCountries";
 
 const MAPTILER_API_KEY = import.meta.env.VITE_MAPTILER_API_KEY;
 const MAPTILER_API_URL = import.meta.env.VITE_MAPTILER_API_URL;
+const MAP_BACKGROUND_COLOR = "#101C30";
 
 maptilersdk.config.apiKey = MAPTILER_API_KEY;
 
@@ -14,12 +18,31 @@ let currentCountry = null;
 let selectedSearchIsoCode = null;
 let mapIsLoaded = false;
 let selectedSearchCoordinates = null;
+let hoverRequestId = 0;
 
 const emptyFilter = [
     "all",
     ["==", ["get", "level"], 0],
     ["==", ["get", "iso_a2"], ""],
 ];
+
+// Normalise les codes ISO2 et corrige certains codes incorrects de MapTiler.
+function normalizeIsoCode(isoCode, properties = {}) {
+    if (typeof isoCode !== "string") return null;
+
+    const code = isoCode.trim().toUpperCase();
+
+    if (!/^[A-Z]{2}$/.test(code)) return null;
+    if (code === "AX") return null;
+
+    if (code === "GV" || code === "PU") {
+        const name =
+            `${properties.name || ""} ${properties.name_en || ""}`.toLowerCase();
+        if (name.includes("guin")) return "GW";
+    }
+
+    return code;
+}
 
 function clearHighlight() {
     if (!map) return;
@@ -56,6 +79,7 @@ function highlightCountry(isoCode) {
 
     ["svalbard-highlight", "svalbard-highlight-border"].forEach((layer) => {
         if (!map.getLayer(layer)) return;
+
         map.setFilter(
             layer,
             isoCode === "NO" || isoCode === "SJ" ? svalbardFilter : emptyFilter,
@@ -68,6 +92,7 @@ function updateSelectedTooltipPosition() {
     if (!map || !selectedSearchCoordinates) return;
 
     const point = map.project(selectedSearchCoordinates);
+
     window.dispatchEvent(
         new CustomEvent("geoworld-country-position", {
             detail: { x: point.x + 15, y: point.y + 15 },
@@ -76,6 +101,12 @@ function updateSelectedTooltipPosition() {
 }
 
 export function createCountryMap({ onCountryChange, onPositionChange }) {
+    mapIsLoaded = false;
+    currentCountry = null;
+    selectedSearchIsoCode = null;
+    selectedSearchCoordinates = null;
+    hoverRequestId = 0;
+
     map = new maptilersdk.Map({
         container: "map",
         style: maptilersdk.MapStyle.DATAVIZ.DARK,
@@ -85,13 +116,30 @@ export function createCountryMap({ onCountryChange, onPositionChange }) {
 
     if (import.meta.env.DEV) window.__geoWorldMap = map;
 
-    // Masque les couches de texte dès que le style est chargé.
+    // Harmonise le fond avec le thème bleu nuit de GeoWorld.
+
+    // Harmonise le fond et différencie les mers et les océans.
     map.on("style.load", () => {
         const styleLayers = map.getStyle().layers || [];
 
         styleLayers.forEach((layer) => {
             if (layer.type === "symbol") {
                 map.setLayoutProperty(layer.id, "visibility", "none");
+            }
+
+            if (layer.type === "background") {
+                map.setPaintProperty(layer.id, "background-color", "#101C30");
+            }
+
+            const layerName =
+                `${layer.id} ${layer["source-layer"] || ""}`.toLowerCase();
+
+            if (layer.type === "fill" && /water|ocean|sea/.test(layerName)) {
+                if (
+                    map.getPaintProperty(layer.id, "fill-color") !== undefined
+                ) {
+                    map.setPaintProperty(layer.id, "fill-color", "#172B46");
+                }
             }
         });
     });
@@ -163,11 +211,15 @@ export function createCountryMap({ onCountryChange, onPositionChange }) {
             type: "line",
             source: "maptiler_planet",
             "source-layer": "boundary",
-            filter: ["==", ["get", "admin_level"], 2],
+            filter: [
+                "all",
+                ["==", ["get", "admin_level"], 2],
+                ["==", ["get", "maritime"], false],
+            ],
             paint: {
-                "line-color": "#ffffff",
-                "line-width": 1,
-                "line-opacity": 0.35,
+                "line-color": "#8FAFCC",
+                "line-width": 1.8,
+                "line-opacity": 0.7,
             },
         });
 
@@ -203,16 +255,17 @@ export function createCountryMap({ onCountryChange, onPositionChange }) {
         map.on("move", updateSelectedTooltipPosition);
 
         map.on("mousemove", async (event) => {
-            // Conserve la sélection issue de la recherche jusqu'au prochain clic sur la carte.
+            // Conserve la sélection issue de la recherche jusqu'au prochain clic.
             if (selectedSearchIsoCode) return;
 
             const { lng, lat } = event.lngLat;
             let detectedIsoCode = null;
+            let detectedProperties = {};
 
             for (const country of microCountries) {
                 const distance = Math.sqrt(
                     Math.pow(lng - country.lng, 2) +
-                    Math.pow(lat - country.lat, 2),
+                        Math.pow(lat - country.lat, 2),
                 );
 
                 if (distance < country.radius) {
@@ -231,16 +284,26 @@ export function createCountryMap({ onCountryChange, onPositionChange }) {
                 });
 
                 if (features.length > 0) {
-                    detectedIsoCode = features[0].properties?.iso_a2;
+                    detectedProperties = features[0].properties || {};
+                    detectedIsoCode = normalizeIsoCode(
+                        detectedProperties.iso_a2,
+                        detectedProperties,
+                    );
                 }
+            } else {
+                detectedIsoCode = normalizeIsoCode(detectedIsoCode);
             }
 
+            // Ignore AX sans appeler l'API ni afficher un territoire distinct.
             if (!detectedIsoCode) {
+                hoverRequestId++;
+
                 if (currentCountry !== null) {
                     currentCountry = null;
                     clearHighlight();
                     onCountryChange(null);
                 }
+
                 return;
             }
 
@@ -252,35 +315,56 @@ export function createCountryMap({ onCountryChange, onPositionChange }) {
             if (currentCountry === detectedIsoCode) return;
 
             currentCountry = detectedIsoCode;
+            const requestId = ++hoverRequestId;
 
-            let country = await getCountryByIsoCode(detectedIsoCode);
-            if (!country) country = await getTerritoryByIsoCode(detectedIsoCode);
+            try {
+                let country = await getCountryByIsoCode(detectedIsoCode);
 
-            if (
-                detectedIsoCode === "SJ" &&
-                country?.country?.iso_code_2 === "NO"
-            ) {
-                country = await getCountryByIsoCode("NO");
-            }
+                if (requestId !== hoverRequestId) return;
 
-            if (!country) {
+                // GW est le code officiel de la Guinée-Bissau.
+                if (!country && detectedIsoCode !== "GW") {
+                    country = await getTerritoryByIsoCode(detectedIsoCode);
+                }
+
+                if (requestId !== hoverRequestId) return;
+
+                if (
+                    detectedIsoCode === "SJ" &&
+                    country?.country?.iso_code_2 === "NO"
+                ) {
+                    country = await getCountryByIsoCode("NO");
+                    if (requestId !== hoverRequestId) return;
+                }
+
+                if (!country) {
+                    clearHighlight();
+                    onCountryChange(null);
+                    return;
+                }
+
+                highlightCountry(detectedIsoCode);
+                onCountryChange(country);
+            } catch (error) {
+                if (requestId !== hoverRequestId) return;
+
+                console.error("Erreur lors de la détection du pays :", error);
                 clearHighlight();
                 onCountryChange(null);
-                return;
             }
-
-            highlightCountry(detectedIsoCode);
-            onCountryChange(country);
         });
 
         map.on("mouseleave", "country-hover", () => {
             if (selectedSearchIsoCode) return;
+
+            hoverRequestId++;
             currentCountry = null;
             clearHighlight();
             onCountryChange(null);
         });
 
         map.on("click", () => {
+            hoverRequestId++;
             selectedSearchIsoCode = null;
             selectedSearchCoordinates = null;
             currentCountry = null;
@@ -298,11 +382,12 @@ export async function selectCountryOnMap({ type, item }) {
     const name = type === "territory" ? item.name_territory : item.name_country;
 
     if (!isoCode || !name) return;
+    if (isoCode.toUpperCase() === "AX") return;
 
     selectedSearchIsoCode = isoCode;
     currentCountry = isoCode;
+    hoverRequestId++;
 
-    // Attend que la carte soit chargée avant de modifier ses couches.
     if (!mapIsLoaded) {
         console.warn("La carte n'est pas encore chargée.");
         return;
@@ -310,7 +395,7 @@ export async function selectCountryOnMap({ type, item }) {
 
     highlightCountry(isoCode);
 
-    // Centre la Russie sans utiliser sa boîte géographique mondiale.
+    // Centre la carte sur la Russie.
     if (isoCode === "RU") {
         selectedSearchCoordinates = [100, 60];
         map.flyTo({
@@ -323,7 +408,7 @@ export async function selectCountryOnMap({ type, item }) {
         return;
     }
 
-    // Centre la carte sur Tuvalu, un petit État insulaire du Pacifique.
+    // Centre la carte sur Tuvalu.
     if (isoCode === "TV") {
         selectedSearchCoordinates = [179.2, -8.5];
         map.flyTo({
@@ -339,14 +424,12 @@ export async function selectCountryOnMap({ type, item }) {
     // Centre la carte sur la Nouvelle-Zélande.
     if (isoCode === "NZ") {
         selectedSearchCoordinates = [172.5, -41.5];
-
         map.flyTo({
             center: selectedSearchCoordinates,
             zoom: 4.5,
             duration: 1200,
             essential: true,
         });
-
         updateSelectedTooltipPosition();
         return;
     }
@@ -386,12 +469,14 @@ export async function selectCountryOnMap({ type, item }) {
             updateSelectedTooltipPosition();
         } else if (feature?.center) {
             selectedSearchCoordinates = feature.center;
+
             map.flyTo({
                 center: feature.center,
                 zoom: type === "territory" ? 6 : 3.5,
                 speed: 0.8,
                 essential: true,
             });
+
             updateSelectedTooltipPosition();
         } else {
             console.error("Aucune position trouvée pour :", name);

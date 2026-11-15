@@ -1,4 +1,3 @@
-
 // Définit les routes de GeoWorld et protège les pages réservées aux utilisateurs connectés.
 import { createRouter, createWebHistory } from "vue-router";
 import { getAccessToken, restaurerSession } from "../services/authService";
@@ -8,6 +7,7 @@ import Connexion from "../views/Connexion.vue";
 import Inscription from "../views/Inscription.vue";
 import Quizz from "../views/Quizz.vue";
 import QuizzGame from "../views/QuizzGame.vue";
+import Historique from "../views/Historique.vue";
 import NotFound from "../views/NotFound.vue";
 
 const routes = [
@@ -24,6 +24,11 @@ const routes = [
     {
         path: "/quizz/jeu",
         component: QuizzGame,
+        meta: { requiresAuth: true },
+    },
+    {
+        path: "/historique",
+        component: Historique,
         meta: { requiresAuth: true },
     },
     {

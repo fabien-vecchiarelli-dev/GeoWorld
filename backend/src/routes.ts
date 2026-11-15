@@ -1,4 +1,3 @@
-
 // Définit les routes HTTP de l'API GeoWorld.
 import { capitalController } from "./controller/capitalController";
 import { continentController } from "./controller/continentController";
@@ -227,23 +226,27 @@ export const Routes = [
     },
 
     // Routes historiques
+
     {
         method: "get",
         route: "/stories",
         controller: storyController,
         action: "all",
+        middlewares: [authMiddleware],
     },
     {
         method: "get",
         route: "/story/:storyId",
         controller: storyController,
         action: "one",
+        middlewares: [authMiddleware],
     },
     {
         method: "post",
         route: "/story",
         controller: storyController,
         action: "save",
+        middlewares: [authMiddleware],
     },
 
     // Route de recherche

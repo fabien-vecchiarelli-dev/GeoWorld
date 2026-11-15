@@ -1,4 +1,5 @@
-// Représente un pays et ses informations associées.
+
+ // Représente un pays et ses informations associées.
 
 import {
     Entity,
@@ -14,6 +15,7 @@ import { Money } from "./Money";
 import { Capital } from "./Capital";
 import { Flag } from "./Flag";
 import { Territory } from "./Territory";
+import { City } from "./City";
 
 @Entity()
 export class Country {
@@ -46,4 +48,7 @@ export class Country {
 
     @OneToMany(() => Territory, territory => territory.country)
     territories: Territory[];
+
+    @OneToMany(() => City, city => city.country)
+    cities: City[];
 }

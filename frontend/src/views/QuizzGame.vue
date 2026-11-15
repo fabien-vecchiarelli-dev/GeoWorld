@@ -1,4 +1,4 @@
-<!-- Affiche une partie de quiz GeoWorld avec un texte lisible, une progression et un score. -->
+<!-- Affiche une partie de quiz GeoWorld avec un texte lisible, une progression, un score et sa sauvegarde dans l'historique. -->
 <template>
     <v-container class="game-page py-8">
         <v-row justify="center">
@@ -78,6 +78,52 @@
                                 % de bonnes réponses.
                             </p>
 
+                            <v-alert
+                                v-if="sauvegardeEnCours"
+                                type="info"
+                                variant="tonal"
+                                rounded="lg"
+                                class="mt-6 text-left"
+                            >
+                                <v-progress-circular
+                                    indeterminate
+                                    size="18"
+                                    width="2"
+                                    class="mr-2"
+                                />
+                                Enregistrement de ton score dans l'historique...
+                            </v-alert>
+
+                            <v-alert
+                                v-else-if="partieEnregistree"
+                                type="success"
+                                variant="tonal"
+                                rounded="lg"
+                                class="mt-6 text-center"
+                            >
+                                Ton score a bien été enregistré dans
+                                l'historique.
+                            </v-alert>
+
+                            <v-alert
+                                v-else-if="sauvegardeErreur"
+                                type="error"
+                                variant="tonal"
+                                rounded="lg"
+                                class="mt-6 text-left"
+                            >
+                                {{ sauvegardeErreur }}
+                                <v-btn
+                                    variant="text"
+                                    color="error"
+                                    class="mt-2"
+                                    :disabled="sauvegardeEnCours"
+                                    @click="enregistrerPartie"
+                                >
+                                    Réessayer l'enregistrement
+                                </v-btn>
+                            </v-alert>
+
                             <div
                                 class="d-flex flex-column flex-sm-row justify-center ga-3 mt-8"
                             >
@@ -108,10 +154,10 @@
                             <v-chip color="cyan" variant="tonal">{{
                                 nomCategorie
                             }}</v-chip>
-                            <span class="secondary-text"
-                                >Question {{ indexQuestion + 1 }} /
-                                {{ questions.length }}</span
-                            >
+                            <span class="secondary-text">
+                                Question {{ indexQuestion + 1 }} /
+                                {{ questions.length }}
+                            </span>
                         </div>
 
                         <v-progress-linear
@@ -187,13 +233,15 @@
                                                 questionActuelle.correctAnswer
                                         "
                                         class="ml-2"
-                                        >mdi-check-circle</v-icon
                                     >
+                                        mdi-check-circle
+                                    </v-icon>
                                     <v-icon
                                         v-else-if="selectedAnswer === choix"
                                         class="ml-2"
-                                        >mdi-close-circle</v-icon
                                     >
+                                        mdi-close-circle
+                                    </v-icon>
                                 </v-btn>
                             </v-col>
                         </v-row>
@@ -268,6 +316,7 @@
 <script setup>
 import { computed, onMounted, ref } from "vue";
 import { useRoute, useRouter } from "vue-router";
+import { requeteAuthentifiee } from "../services/authService";
 
 const route = useRoute();
 const router = useRouter();
@@ -280,6 +329,9 @@ const score = ref(0);
 const loading = ref(true);
 const error = ref("");
 const termine = ref(false);
+const sauvegardeEnCours = ref(false);
+const partieEnregistree = ref(false);
+const sauvegardeErreur = ref("");
 
 const category = computed(() => String(route.query.category || ""));
 const difficulty = computed(() => String(route.query.difficulty || ""));
@@ -306,6 +358,7 @@ const messageResultat = computed(() => {
 const couleurResultat = computed(() =>
     score.value / questions.value.length >= 0.7 ? "cyan" : "orange",
 );
+
 const iconeResultat = computed(() =>
     score.value / questions.value.length >= 0.7 ? "mdi-trophy" : "mdi-school",
 );
@@ -328,6 +381,9 @@ async function chargerQuestions() {
     selectedAnswer.value = null;
     score.value = 0;
     termine.value = false;
+    sauvegardeEnCours.value = false;
+    partieEnregistree.value = false;
+    sauvegardeErreur.value = "";
 
     try {
         const params = new URLSearchParams({
@@ -344,6 +400,7 @@ async function chargerQuestions() {
         }
 
         const data = await response.json();
+
         if (!Array.isArray(data.questions) || data.questions.length === 0) {
             throw new Error("Aucune question disponible pour cette catégorie.");
         }
@@ -362,7 +419,7 @@ function selectionnerReponse(choix) {
     if (choix === questionActuelle.value.correctAnswer) score.value++;
 }
 
-function questionSuivante() {
+async function questionSuivante() {
     if (selectedAnswer.value === null) return;
 
     if (indexQuestion.value < questions.value.length - 1) {
@@ -370,6 +427,43 @@ function questionSuivante() {
         selectedAnswer.value = null;
     } else {
         termine.value = true;
+        await enregistrerPartie();
+    }
+}
+
+async function enregistrerPartie() {
+    if (sauvegardeEnCours.value || partieEnregistree.value) return;
+
+    sauvegardeEnCours.value = true;
+    sauvegardeErreur.value = "";
+
+    try {
+        const response = await requeteAuthentifiee("/story", {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+                score: score.value,
+                date: new Date().toISOString(),
+                categoryCode: category.value,
+            }),
+        });
+
+        if (!response.ok) {
+            const data = await response.json().catch(() => ({}));
+            throw new Error(
+                data.message || "Le serveur n'a pas pu enregistrer ton score.",
+            );
+        }
+
+        partieEnregistree.value = true;
+    } catch (err) {
+        console.error("Erreur lors de l'enregistrement du score :", err);
+        sauvegardeErreur.value =
+            err.message || "Impossible d'enregistrer le score. Réessaie.";
+    } finally {
+        sauvegardeEnCours.value = false;
     }
 }
 
@@ -388,7 +482,6 @@ onMounted(chargerQuestions);
 </script>
 
 <style scoped>
-
 .game-page {
     min-height: 100vh;
     width: 100%;
@@ -396,7 +489,11 @@ onMounted(chargerQuestions);
     margin: 0;
     color: #f1f5f9;
     background:
-        radial-gradient(ellipse at 50% 0%, rgba(8, 145, 178, 0.18), transparent 55%),
+        radial-gradient(
+            ellipse at 50% 0%,
+            rgba(8, 145, 178, 0.18),
+            transparent 55%
+        ),
         linear-gradient(145deg, #030712 0%, #071426 50%, #0b1830 100%);
 }
 .return-btn {
@@ -413,7 +510,6 @@ onMounted(chargerQuestions);
 .return-btn:hover {
     background: rgba(8, 145, 178, 0.38);
 }
-
 .game-card {
     color: #f1f5f9;
     background: linear-gradient(145deg, #111c32, #0b1222);

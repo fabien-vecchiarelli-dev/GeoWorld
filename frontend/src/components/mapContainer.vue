@@ -176,13 +176,15 @@ export default {
 </script>
 
 <style scoped>
+/* Étend la carte sur toute la fenêtre, sans espace réservé à l'ancienne navigation. */
 #map {
-    display: flex;
-    align-items: center;
-    position: absolute;
-    top: 61px;
-    bottom: 50px;
+    position: fixed;
+    inset: 0;
     width: 100%;
+    height: 100vh;
+    height: 100dvh;
+    margin: 0;
+    padding: 0;
     cursor: pointer;
 }
 
